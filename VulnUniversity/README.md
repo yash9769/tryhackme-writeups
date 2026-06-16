@@ -260,7 +260,7 @@ cat /root/root.txt
 
 ---
 
-## Resources
+## Resources-
 
 - [GTFOBins - systemctl](https://gtfobins.github.io/gtfobins/systemctl/)
 - [PentestMonkey PHP Reverse Shell](https://github.com/pentestmonkey/php-reverse-shell)
